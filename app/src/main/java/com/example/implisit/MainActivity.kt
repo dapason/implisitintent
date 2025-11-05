@@ -1,21 +1,56 @@
 package com.example.implisit
 
+import android.Manifest
+import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.example.implisit.ui.theme.IMPLISITTheme
+import java.lang.IllegalStateException
 
 class MainActivity : ComponentActivity() {
+
+    // --- ActivityResultLaunchers ---
+    // Launcher untuk mengambil gambar. Hasilnya adalah boolean 'isSuccess'.
+    private val takePictureLauncher = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { isSuccess ->
+        if (isSuccess) {
+            // latestTmpUri akan berisi URI dari file yang baru saja disimpan
+            Toast.makeText(this, "Foto berhasil disimpan di Galeri", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Launcher untuk meminta izin. Hasilnya adalah boolean 'isGranted'.
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            // Izin diberikan, panggil fungsi internal untuk meluncurkan kamera
+            launchCameraInternal()
+        } else {
+            // Izin ditolak, beri tahu pengguna
+            Toast.makeText(this, "Izin kamera ditolak", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Variabel untuk menyimpan URI gambar sementara
+    private var latestTmpUri: Uri? = null
+    // --- End of ActivityResultLaunchers ---
+
 
     // Helper function untuk meluncurkan Intent dengan pengecekan
     private fun launchIntent(intent: Intent, failureMessage: String) {
@@ -27,10 +62,46 @@ class MainActivity : ComponentActivity() {
     }
 
     // --- Intent Functions ---
-    private fun launchCamera() = launchIntent(
-        Intent(MediaStore.ACTION_IMAGE_CAPTURE),
-        "Aplikasi Kamera tidak ditemukan!"
-    )
+    // Fungsi ini sekarang akan memeriksa izin sebelum meluncurkan kamera
+    private fun launchCamera() {
+        when (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)) {
+            PackageManager.PERMISSION_GRANTED -> {
+                // Izin sudah ada, langsung luncurkan kamera
+                launchCameraInternal()
+            }
+            else -> {
+                // Izin belum ada, minta izin terlebih dahulu
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+
+    // Fungsi ini hanya akan dipanggil setelah izin kamera dikonfirmasi.
+    private fun launchCameraInternal() {
+        try {
+            latestTmpUri = getImageUri()
+            // Gunakan .let untuk memastikan URI tidak null sebelum meluncurkan launcher
+            latestTmpUri?.let { uri ->
+                takePictureLauncher.launch(uri)
+            }
+        } catch (e: IllegalStateException) {
+            Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Membuat URI untuk file gambar baru di galeri
+    private fun getImageUri(): Uri {
+        val resolver = contentResolver
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "IMG_${System.currentTimeMillis()}.jpg")
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/ImplisitApp") // Simpan di folder Pictures/ImplisitApp
+        }
+        // Menyisipkan entri baru dan mendapatkan URI-nya
+        return resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            ?: throw IllegalStateException("Gagal membuat URI Gambar")
+    }
+
 
     private fun launchDialer() {
         // ACTION_DIAL tidak memerlukan pengecekan resolveActivity di banyak kasus
